@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dự Đoán Giá — Dashboard PRO</title>
+
+  <!-- Bootstrap + FontAwesome -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+  <!-- Plotly -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="/static/css/dashboard_pro.css">
+</head>
+
+<body>
+  <div class="dp-root">
+
+    <!-- SIDEBAR -->
+    <aside class="dp-sidebar">
+      <div class="dp-brand">
+        <img id="dpLogo" src="/static/img/hinh_huit.png" alt="logo">
+        <div class="dp-brand-text">
+          <div class="title">Dự Đoán Giá — Pro</div>
+          <div class="subtitle">Phân tích • Dự đoán • Gợi ý hành động</div>
+        </div>
+      </div>
+
+      <div class="dp-controls">
+        <label class="label small">Tải lên CSV</label>
+        <input id="uploadCSV" type="file" accept=".csv" class="form-control form-control-sm" />
+        <button id="btnUpload" class="btn btn-success btn-block mt-2">
+          <i class="fa fa-upload me-2"></i> Upload CSV
+        </button>
+
+        <label class="label small mt-3">Chọn file dữ liệu</label>
+        <select id="fileSelect" class="form-select mb-2"></select>
+
+        <button id="btnTrain" class="btn btn-primary btn-block mt-2">
+          <i class="fa fa-rocket me-2"></i> Huấn luyện
+        </button>
+
+        <button id="btnRefresh" class="btn btn-outline-light btn-block mt-2">
+          <i class="fa fa-sync-alt me-2"></i> Làm mới
+        </button>
+
+        <hr class="divider">
+
+        <div class="label small">Phân tích nâng cao</div>
+
+        <div class="btn-group-vertical w-100 mt-2">
+          <button id="btnMonthly" class="btn btn-ghost">
+            <i class="fa fa-calendar-alt me-2"></i> Theo Tháng
+          </button>
+
+          <button id="btnQuarterly" class="btn btn-ghost">
+            <i class="fa fa-calendar-week me-2"></i> Theo Quý
+          </button>
+        </div>
+      </div>
+
+      <div class="dp-footer">
+        <small>© 2025 • DATN</small>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="dp-main">
+
+      <header class="dp-header d-flex justify-content-between align-items-center">
+        <div>
+          <h1 class="mb-0">Dashboard Dự Đoán Giá</h1>
+          <small class="muted">Biểu đồ tương tác — Gợi ý hành động</small>
+        </div>
+
+        <div class="d-flex align-items-center gap-3">
+          <div class="text-end small muted">
+            <div>Server: <strong>Local</strong></div>
+            <div id="lastAction">Sẵn sàng</div>
+          </div>
+
+          <button id="btnDownloadCSV" class="btn btn-outline-light">
+            <i class="fa fa-download me-2"></i> Xuất CSV
+          </button>
+
+          <button id="themeToggle" class="btn btn-light" title="Toggle light/dark">
+            <i class="fa fa-moon"></i>
+          </button>
+        </div>
+      </header>
+
+
+      <section class="dp-chart card">
+        <div class="chart-topbar d-flex justify-content-between align-items-center">
+          <div class="chart-title">Giá đóng cửa: Thực tế vs Dự đoán</div>
+
+          <div class="chart-tools">
+            <button class="btn btn-sm btn-outline-light range-btn" data-range="30">1M</button>
+            <button class="btn btn-sm btn-outline-light range-btn" data-range="90">3M</button>
+            <button class="btn btn-sm btn-outline-light range-btn" data-range="180">6M</button>
+            <button class="btn btn-sm btn-outline-light range-btn" data-range="365">1Y</button>
+          </div>
+        </div>
+
+        <div id="chart" style="height:520px;"></div>
+      </section>
+
+
+      <section class="dp-insights d-flex gap-3 mt-4">
+
+        <div class="card w-50">
+          <div class="card-header">Gợi ý giao dịch</div>
+          <div class="card-body">
+
+            <div class="btn-group mb-3">
+              <button id="btnSignalSimple" class="btn btn-outline-primary">7 ngày</button>
+              <button id="btnSignalAdvanced" class="btn btn-outline-success">MA/RSI</button>
+              <button id="btnSignalSummary" class="btn btn-outline-warning">Tổng hợp</button>
+
+              <button id="btnNextMonth" class="btn btn-outline-info">Dự báo tháng tiếp theo</button>
+              <button id="btnNextQuarter" class="btn btn-outline-primary">Dự báo quý tiếp theo</button>
+              <button id="btnSignalRecommend" class="btn btn-outline-danger">Khuyến nghị tổng hợp</button>
+            </div>
+
+            <div id="signalCard" class="signal-card">
+              <div class="signal-head">
+                <span class="signal-label">Chưa có phân tích</span>
+              </div>
+
+              <pre id="signalResult" class="signal-pre">
+Nhấn nút để xem gợi ý...
+              </pre>
+            </div>
+          </div>
+        </div>
+
+
+        <div class="card w-50">
+          <div class="card-header">Kết quả phân tích nâng cao</div>
+          <div class="card-body" id="adv_table_holder"></div>
+        </div>
+
+      </section>
+
+    </main>
+  </div>
+
+  <!-- LOAD JS AT BOTTOM -->
+  <script src="/static/js/dashboard_pro.js"></script>
+
+</body>
+</html>

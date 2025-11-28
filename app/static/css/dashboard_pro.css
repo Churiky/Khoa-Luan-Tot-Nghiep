@@ -1,0 +1,107 @@
+/* app/static/css/dashboard_pro.css */
+/* Dark-first professional theme (TradingView-like) */
+:root{
+  --bg:#071226;
+  --panel:#09162a;
+  --muted:#94a3b8;
+  --accent:#0ea5a8;
+  --buy:#10b981;
+  --sell:#ef4444;
+  --hold:#f59e0b;
+}
+
+*{box-sizing:border-box}
+body{margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background:linear-gradient(180deg,#05101a,#071226 60%); color:#e6eef6;}
+
+/* layout */
+.dp-root{display:flex; min-height:100vh; gap:0}
+.dp-sidebar{width:320px; background:var(--panel); padding:28px; display:flex; flex-direction:column; gap:12px; border-right:1px solid rgba(255,255,255,0.03)}
+.dp-brand{display:flex; gap:12px; align-items:center}
+.dp-brand img{width:56px;height:56px;border-radius:10px;object-fit:cover}
+.dp-brand .title{font-weight:700;font-size:18px}
+.dp-brand .subtitle{font-size:12px;color:var(--muted)}
+
+.dp-controls .label{color:var(--muted);font-size:13px}
+.btn-block{width:100%}
+.divider{border-top:1px solid rgba(255,255,255,0.04); margin:12px 0}
+
+.btn-ghost{background:transparent; border:1px solid rgba(255,255,255,0.04); color:inherit; padding:10px; border-radius:8px; text-align:left}
+
+.dp-footer{margin-top:auto;color:var(--muted)}
+
+/* main */
+.dp-main{flex:1;padding:24px 32px}
+.dp-header{display:flex;justify-content:space-between;align-items:center}
+.dp-header h1{margin:0;font-size:22px}
+.muted{color:var(--muted)}
+
+.dp-chart .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; padding:12px}
+.chart-topbar{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px}
+.chart-title{font-weight:700}
+.chart-tools .range-btn{margin-right:6px}
+
+/* signal card */
+.signal-card{background:rgba(255,255,255,0.02); padding:12px; border-radius:10px}
+.signal-head{display:flex; align-items:center; gap:12px; margin-bottom:8px}
+.signal-label{font-weight:700}
+.signal-pre{background:rgba(0,0,0,0.25); padding:10px; border-radius:8px; color:#e6eef6; white-space:pre-wrap; min-height:90px}
+
+/* table */
+table{width:100%}
+.card-header{font-weight:700}
+
+/* light mode override */
+body.light-mode{
+  background: linear-gradient(180deg,#f5f7fb,#eef2ff);
+  color:#0f172a;
+}
+body.light-mode .dp-sidebar{background:#f8fafc; color:#0f172a; border-right:1px solid rgba(15,23,42,0.04)}
+body.light-mode .dp-brand .subtitle{color:#6b7280}
+body.light-mode .dp-chart .card, body.light-mode .card{background:#ffffff; color:#0f172a}
+
+/* responsive */
+@media(max-width:1000px){
+  .dp-root{flex-direction:column}
+  .dp-sidebar{width:100%; order:2}
+  .dp-main{order:1}
+}
+
+/* SIGNAL BUTTONS – TradingView Style */
+.signal-btn-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.signal-btn {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  font-weight: 600;
+  transition: 0.2s;
+  background: white;
+  cursor: pointer;
+}
+
+.signal-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+
+/* COLORS */
+.signal-btn.blue    { color:#2563eb; border-color:#2563eb80; }
+.signal-btn.green   { color:#16a34a; border-color:#16a34a80; }
+.signal-btn.orange  { color:#d97706; border-color:#d9770680; }
+.signal-btn.cyan    { color:#0891b2; border-color:#0891b280; }
+.signal-btn.purple  { color:#7c3aed; border-color:#7c3aed80; }
+.signal-btn.red     { color:#dc2626; border-color:#dc262680; }
+::-webkit-scrollbar {
+    width: 0px;
+    height: 0px;
+}
+
+* {
+    scrollbar-width: none;       /* Firefox */
+    -ms-overflow-style: none;    /* IE + Edge */
+}

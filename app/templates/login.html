@@ -1,0 +1,22 @@
+<!-- app/templates/login.html -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Login</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="login-box">
+    <h2>Đăng nhập</h2>
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+    <form method="post">
+      <input type="text" name="username" placeholder="Tài khoản" required>
+      <input type="password" name="password" placeholder="Mật khẩu" required>
+      <button type="submit">Login</button>
+    </form>
+  </div>
+</body>
+</html>

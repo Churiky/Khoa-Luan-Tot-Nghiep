@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+  <meta charset="utf-8">
+  <title>📈 Dự đoán Giá Cổ phiếu</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2721/2721293.png" type="image/png">
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: #f5f7fa;
+      color: #2f3640;
+    }
+
+    .container {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 300px;
+      background: linear-gradient(180deg, #1e272e, #2f3640);
+      color: #ecf0f1;
+      padding: 25px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 2px 0 6px rgba(0, 0, 0, 0.2);
+    }
+
+    .sidebar h2 {
+      color: #00a8ff;
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+
+    input[type=file],
+    input[type=date],
+    select,
+    button {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border-radius: 6px;
+      border: none;
+      font-size: 14px;
+    }
+
+    input[type=file] {
+      background: #353b48;
+      color: white;
+      cursor: pointer;
+    }
+
+    select {
+      background: white;
+      color: #2f3640;
+    }
+
+    input[type=date] {
+      background: #fff;
+      color: #2f3640;
+    }
+
+    .btn {
+      background: linear-gradient(90deg, #00a8ff, #0097e6);
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      transition: 0.3s;
+      margin-top: 10px;
+    }
+
+    .btn:hover {
+      opacity: 0.85;
+    }
+
+    .btn-train {
+      background: linear-gradient(90deg, #4cd137, #44bd32);
+    }
+
+    .btn-train:hover {
+      opacity: 0.9;
+    }
+
+    .logout {
+      text-align: center;
+      color: #dcdde1;
+      text-decoration: none;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+
+    .logout:hover {
+      color: #e84118;
+    }
+
+    /* Main content */
+    .main {
+      flex: 1;
+      padding: 30px 40px;
+      overflow-y: auto;
+    }
+
+    .main h2 {
+      font-size: 22px;
+      color: #273c75;
+      margin-bottom: 20px;
+    }
+
+    /* Flash message */
+    .flash {
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+    }
+
+    .flash.success {
+      background: #dff9fb;
+      color: #22a6b3;
+    }
+
+    .flash.danger {
+      background: #f8d7da;
+      color: #c0392b;
+    }
+
+    /* Progress bar */
+    .progress {
+      width: 100%;
+      background: #404258;
+      border-radius: 10px;
+      height: 22px;
+      margin-top: 15px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      background: linear-gradient(90deg, #00a8ff, #0097e6);
+      height: 100%;
+      text-align: center;
+      color: white;
+      font-weight: bold;
+      transition: width 0.4s;
+    }
+
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #00a8ff;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      animation: spin 1s linear infinite;
+      margin: 10px auto;
+      visibility: hidden;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* Table layout */
+    .tables-flex {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 25px;
+    }
+
+    .table-box {
+      flex: 1;
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      overflow-x: auto;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: center;
+    }
+
+    th {
+      background: #00a8ff;
+      color: white;
+    }
+
+    /* ===== SỬA LỖI HIỂN THỊ PLOTLY V3 (MẠNH TAY) ===== */
+    #plotly-div {
+      position: relative;
+      /* Bắt buộc để neo modebar */
+    }
+
+    .modebar {
+      position: absolute !important;
+      /* Đè lên style của plotly */
+      top: 10px !important;
+      right: 10px !important;
+      z-index: 999 !important;
+      /* Đè lên tất cả (kể cả sidebar) */
+      display: flex !important;
+      flex-direction: row !important;
+      /* Luôn là hàng ngang */
+      align-items: center;
+      background: white !important;
+      /* Thêm nền trắng để che đi */
+      border: 1px solid #ddd !important;
+      border-radius: 5px !important;
+      padding: 3px !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+    }
+
+    .modebar-group {
+      /* Ngăn các nhóm icon co lại */
+      flex-shrink: 0 !important;
+      display: flex !important;
+      flex-direction: row !important;
+      position: relative !important;
+      /* Đặt lại position */
+    }
+
+    /* ===== KẾT THÚC SỬA LỖI ===== */
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <div>
+        <h2>Xin chào, {{ username }}</h2>
+
+        <form id="uploadForm" action="{{ url_for('upload_csv') }}" method="post" enctype="multipart/form-data">
+          <label>📁 Chọn file CSV:</label>
+          <input type="file" name="file" accept=".csv" required>
+          <button type="submit" class="btn">⬆️ Upload & Huấn luyện</button>
+        </form>
+
+        <form method="get" action="{{ url_for('dashboard') }}">
+          <label>📂 Dữ liệu hiện có:</label>
+          <select id="selected_file" name="selected_file" onchange="this.form.submit()">
+            {% for f in files %}
+            <option value="{{ f }}" {% if f==selected_file %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+          </select>
+        </form>
+
+        <label>📅 Khoảng thời gian dự đoán:</label>
+        <input type="date" id="start_date" value="{{ start_date }}">
+        <input type="date" id="end_date" value="{{ end_date }}">
+        <label>⚙️ Chọn hàm Loss:</label>
+        <select id="loss_function">
+          <option value="mse">MSE (Mean Squared Error)</option>
+          <option value="huber">Huber Loss (Smooth L1)</option>
+        </select>
+
+        <button id="btnStartTrain" class="btn-train">🚀 Dự đoán tương lai</button>
+        <div id="loader" class="loader"></div>
+
+        <div class="progress">
+          <div id="trainBar" class="progress-bar" style="width: {{ train_state.progress }}%;">
+            {{ train_state.progress }}%
+          </div>
+        </div>
+        <div id="trainMsg" style="margin-top:6px;font-size:14px;">
+          {{ train_state.message }}
+        </div>
+
+        <div id="trainResult" style="margin-top:6px;font-size:14px;">
+          {% if train_state.rmse %}
+          <strong>RMSE:</strong> {{ train_state.rmse }} |
+          <strong>MAPE:</strong> {{ train_state.mape }}%
+          {% endif %}
+        </div>
+      </div>
+
+      <a href="{{ url_for('logout') }}" class="logout">🚪 Đăng xuất</a>
+    </div>
+
+    <div class="main">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+      {% endif %}
+      {% endwith %}
+
+      <h2>📊 Biểu đồ Giá & Dự đoán</h2>
+      <div id="plotly-div">{{ plot_html | safe }}</div>
+
+      <div class="tables-flex">
+        <div class="table-box">
+          <h3>📘 Dữ liệu thực tế (20 dòng cuối)</h3>
+          {{ table_data | safe }}
+        </div>
+        {% if pred_preview_html %}
+        <div class="table-box">
+          <h3>📕 Dự đoán (preview)</h3>
+          {{ pred_preview_html | safe }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const loader = document.getElementById('loader');
+
+    document.getElementById('btnStartTrain').addEventListener('click', async function () {
+      const sel = document.getElementById('selected_file').value;
+      const start = document.getElementById('start_date').value;
+      const end = document.getElementById('end_date').value;
+      const loss = document.getElementById('loss_function').value;
+
+      if (!sel) { alert('⚠️ Chưa chọn file!'); return; }
+      if (!start || !end) { alert('⚠️ Vui lòng nhập khoảng thời gian!'); return; }
+
+      loader.style.visibility = "visible";
+      const fd = new FormData();
+      fd.append('selected_file', sel);
+      fd.append('start_date', start);
+      fd.append('end_date', end);
+      fd.append('loss_function', loss);
+      try {
+        const r = await fetch('{{ url_for("start_train") }}', { method: 'POST', body: fd });
+        const js = await r.json();
+
+        if (!js.ok) {
+          alert('❌ ' + js.msg);
+          loader.style.visibility = "hidden";
+          return;
+        }
+
+        // Nếu dữ liệu dự đoán đã có
+        if (js.redirect) {
+          loader.style.visibility = "hidden";
+          window.location.href = js.redirect;
+          return;
+        }
+        if (js.msg && js.msg.includes("đã có")) {
+          alert("✅ " + js.msg);
+          loader.style.visibility = "hidden";
+          return;
+        }
+
+        // Nếu phải train thì bắt đầu poll status
+        pollStatus();
+      } catch (e) {
+        console.error(e);
+        alert("❌ Lỗi server: " + e);
+        loader.style.visibility = "hidden";
+      }
+    });
+
+    let pollTimer = null;
+    async function pollStatus() {
+      if (pollTimer) clearTimeout(pollTimer);
+      try {
+        const r = await fetch('{{ url_for("train_status") }}');
+        const s = await r.json();
+        const bar = document.getElementById('trainBar');
+        bar.style.width = (s.progress || 0) + '%';
+        bar.textContent = (s.progress || 0) + '%';
+        document.getElementById('trainMsg').textContent = s.message || '';
+        if (s.rmse) {
+          document.getElementById('trainResult').innerHTML =
+            `<strong>RMSE:</strong> ${s.rmse.toFixed(4)} | <strong>MAPE:</strong> ${s.mape?.toFixed(2) || "-"}%`;
+        }
+        if (s.running) {
+          loader.style.visibility = "visible";
+          pollTimer = setTimeout(pollStatus, 1000);
+        } else {
+          loader.style.visibility = "hidden";
+          if (s.progress >= 100) {
+            alert("✅ Huấn luyện & dự đoán hoàn tất!");
+            setTimeout(() => {
+  const start = document.getElementById('start_date').value;
+  const end = document.getElementById('end_date').value;
+  const params = new URLSearchParams({ start_date: start, end_date: end });
+  window.location.href = "?" + params.toString();
+}, 1200);
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        pollTimer = setTimeout(pollStatus, 2000);
+      }
+    }
+
+    // Kiểm tra nếu đang train khi load page
+    (function () {
+      var running_str = "{{ 'true' if train_state.running else 'false' }}";
+      var running = (running_str === 'true');
+      if (running) {
+        loader.style.visibility = "visible";
+        pollStatus();
+      }
+    })();
+  </script>
+</body>
+
+</html>
