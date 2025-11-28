@@ -6,23 +6,26 @@ from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
-
+from sklearn.preprocessing import MinMaxScaler
 from .train_model import train_lstm
 from .analysis import analyze_monthly, analyze_quarterly
-from .signals import signal_simple, signal_advanced, signal_summary
+from .signals import signal_recommend, signal_simple, signal_advanced, signal_summary
+from tensorflow.keras.models import load_model
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
-
+MODELS_DIR = os.path.join(PROJECT_ROOT, "MODELS")
 DATA_DIR = os.path.join(PROJECT_ROOT, "DATA")
 PRED_DIR = os.path.join(PROJECT_ROOT, "DATA_PREDICT")
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(PRED_DIR, exist_ok=True)
-
+os.makedirs(MODELS_DIR, exist_ok=True)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 app = FastAPI(title="Stock Prediction API")
-
+def model_file_path(file_name: str):
+    base = os.path.basename(file_name).replace(".csv", "_lstm.h5")
+    return os.path.join(MODELS_DIR, base)
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -70,7 +73,6 @@ async def upload_csv(file: UploadFile):
     except Exception as e:
         return {"ok": False, "msg": str(e)}
 
-
 # ============================
 # TRAIN MODEL
 # ============================
@@ -78,11 +80,12 @@ async def upload_csv(file: UploadFile):
 async def train(file: str = Form(...)):
     try:
         data_path = os.path.join(DATA_DIR, file)
-        out, mae, rmse = train_lstm(data_path)
+        out_path, mae, rmse, model_path = train_lstm(data_path)
         return {
             "ok": True,
             "msg": "Train thành công",
-            "predict_file": os.path.basename(out),
+            "predict_file": os.path.basename(out_path),
+            "model_file": os.path.basename(model_path),
             "mae": mae,
             "rmse": rmse,
         }
@@ -163,57 +166,137 @@ def dashboard(request: Request):
 def api_signal_simple(file: str = Form(...), horizon: int = Form(7)):
     pred_path = pred_file_path(file)
     return signal_simple(pred_path, horizon)
-
-
 @app.post("/signal/advanced")
 def api_signal_advanced(file: str = Form(...)):
-    pred_path = pred_file_path(file)
-    return signal_advanced(pred_path)
-
-
+    """
+    Nhận tên file từ FormData, trả về signal luôn hợp lệ.
+    """
+    try:
+        pred_path = pred_file_path(file)
+        result = signal_advanced(pred_path)
+        # Bảo vệ tuyệt đối signal
+        if result.get("signal") not in ["STRONG_BUY","BUY","HOLD","SELL","STRONG_SELL"]:
+            result["signal"] = "HOLD"
+        return result
+    except Exception as e:
+        return {"ok": False, "signal": "HOLD", "score": 0.0, "note": f"Lỗi server: {str(e)}"}
 @app.post("/signal/summary")
 def api_signal_summary(file: str = Form(...)):
     return signal_summary(PROJECT_ROOT, file)
-
+@app.post("/signal/recommend")
+def api_signal_recommend(file: str = Form(...)):
+    pred_path = pred_file_path(file)
+    return signal_recommend(pred_path)
 @app.get("/predict/next-month")
 def predict_next_month(file: str):
-
+    # Kiểm tra file dự đoán
     pred_path = pred_file_path(file)
     if not os.path.exists(pred_path):
         return {"ok": False, "msg": "Chưa có file dự đoán"}
 
+    # Kiểm tra file model
+    model_path = model_file_path(file)
+    if not os.path.exists(model_path):
+        return {"ok": False, "msg": "Chưa có file model"}
+
+    # Load dữ liệu dự đoán
     df = pd.read_csv(pred_path)
     df["Ngày"] = pd.to_datetime(df["Ngày"], errors="coerce")
     df = df.dropna().sort_values("Ngày")
 
-    last_price = df["Giá_đóng_cửa_dự_đoán"].iloc[-1]
+    # Load model LSTM
+    model = load_model(model_path)
 
-    next_month = []
-    p = last_price
-    for i in range(30):
-        p = p * (1 + np.random.normal(0.0015, 0.003))
-        next_month.append(float(p))
+    # Chọn đúng 5 features đã dùng lúc train
+    feature_cols = ["open", "high", "low", "close", "volume"]
+
+    # Nếu file predict không có đủ cột, fallback dùng giá close lặp lại
+    if not all(col in df.columns for col in feature_cols):
+        # chuyển các cột giả lập từ close
+        for i, col in enumerate(feature_cols):
+            if col not in df.columns:
+                df[col] = df["Giá_đóng_cửa_dự_đoán"] if "Giá_đóng_cửa_dự_đoán" in df.columns else df["close"]
+
+    # Chuẩn hóa dữ liệu
+    scaler = MinMaxScaler()
+    scaled = scaler.fit_transform(df[feature_cols].values)
+
+    window_size = 60
+    last_sequence = scaled[-window_size:]
+    last_sequence = last_sequence.reshape(1, window_size, len(feature_cols))
+
+    # Dự báo 30 ngày tiếp theo
+    next_month_scaled = []
+    current_sequence = last_sequence.copy()
+    for _ in range(30):
+        pred_scaled = model.predict(current_sequence, verbose=0)  # shape=(1,4)
+        next_month_scaled.append(pred_scaled[0,3])  # cột close
+
+        # cập nhật sequence: bỏ dòng đầu, thêm giá dự đoán
+        new_row = current_sequence[:, -1, :].copy()
+        new_row[0,3] = pred_scaled[0,3]  # chỉ cập nhật close
+        current_sequence = np.append(current_sequence[:,1:,:], new_row.reshape(1,1,len(feature_cols)), axis=1)
+
+    # Chuyển về giá gốc
+    # scaler đã fit 5 features → tạo array đủ 5 cột, chỉ set cột close mới
+    next_month_array = np.zeros((30, len(feature_cols)))
+    next_month_array[:,3] = next_month_scaled
+    next_month = scaler.inverse_transform(next_month_array)[:,3]
+    next_month = [float(p) for p in next_month]
 
     return {"ok": True, "next_month": next_month}
-
 @app.get("/predict/next-quarter")
 def predict_next_quarter(file: str):
-
+    # Kiểm tra file dự đoán
     pred_path = pred_file_path(file)
     if not os.path.exists(pred_path):
         return {"ok": False, "msg": "Chưa có file dự đoán"}
 
+    # Kiểm tra file model
+    model_path = model_file_path(file)
+    if not os.path.exists(model_path):
+        return {"ok": False, "msg": "Chưa có file model"}
+
+    # Load dữ liệu dự đoán
     df = pd.read_csv(pred_path)
     df["Ngày"] = pd.to_datetime(df["Ngày"], errors="coerce")
     df = df.dropna().sort_values("Ngày")
 
-    last_price = df["Giá_đóng_cửa_dự_đoán"].iloc[-1]
+    # Load model LSTM
+    model = load_model(model_path)
 
-    next_quarter = []
-    p = last_price
-    for i in range(90):
-        p = p * (1 + np.random.normal(0.001, 0.002))
-        next_quarter.append(float(p))
+    # Chọn đúng 5 features
+    feature_cols = ["open", "high", "low", "close", "volume"]
+    if not all(col in df.columns for col in feature_cols):
+        for i, col in enumerate(feature_cols):
+            if col not in df.columns:
+                df[col] = df["Giá_đóng_cửa_dự_đoán"] if "Giá_đóng_cửa_dự_đoán" in df.columns else df["close"]
+
+    # Chuẩn hóa dữ liệu
+    scaler = MinMaxScaler()
+    scaled = scaler.fit_transform(df[feature_cols].values)
+
+    window_size = 60
+    last_sequence = scaled[-window_size:]
+    last_sequence = last_sequence.reshape(1, window_size, len(feature_cols))
+
+    # Dự báo 90 ngày tiếp theo
+    next_quarter_scaled = []
+    current_sequence = last_sequence.copy()
+    for _ in range(90):
+        pred_scaled = model.predict(current_sequence, verbose=0)  # shape=(1,4)
+        next_quarter_scaled.append(pred_scaled[0,3])  # chỉ lấy cột close
+
+        # cập nhật sequence: bỏ dòng đầu, thêm giá dự đoán
+        new_row = current_sequence[:, -1, :].copy()
+        new_row[0,3] = pred_scaled[0,3]
+        current_sequence = np.append(current_sequence[:,1:,:], new_row.reshape(1,1,len(feature_cols)), axis=1)
+
+    # Chuyển về giá gốc
+    next_quarter_array = np.zeros((90, len(feature_cols)))
+    next_quarter_array[:,3] = next_quarter_scaled
+    next_quarter = scaler.inverse_transform(next_quarter_array)[:,3]
+    next_quarter = [float(p) for p in next_quarter]
 
     return {"ok": True, "next_quarter": next_quarter}
 

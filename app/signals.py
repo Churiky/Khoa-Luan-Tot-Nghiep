@@ -34,7 +34,66 @@ def rsi(series, period=14):
     rs = ma_up / (ma_down + 1e-9)
     return 100 - (100 / (1 + rs))
 
+def signal_recommend(pred_path):
+    """
+    Hàm tính toán tín hiệu mua/bán dựa trên dự đoán giá đóng cửa.
+    Luôn trả về một signal hợp lệ: STRONG_BUY, BUY, HOLD, SELL, STRONG_SELL
+    """
+    # Kiểm tra file
+    if not os.path.exists(pred_path):
+        return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Chưa có file dự đoán"}
 
+    try:
+        df = pd.read_csv(pred_path)
+        df = normalize_pred(df)
+
+        if "Giá_đóng_cửa_dự_đoán" not in df.columns:
+            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Thiếu cột Giá_đóng_cửa_dự_đoán"}
+
+        close = df["Giá_đóng_cửa_dự_đoán"].astype(float)
+
+        if len(close) < 21:
+            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Cần >= 21 ngày để tính MA20 & RSI"}
+
+        # Tính MA và RSI
+        ma5 = ma(close, 5)
+        ma20 = ma(close, 20)
+        rsi14 = rsi(close, 14)
+
+        latest_ma5 = float(ma5.iloc[-1])
+        latest_ma20 = float(ma20.iloc[-1])
+        latest_rsi = float(rsi14.iloc[-1])
+
+        vol = float(close.pct_change().rolling(10).std().iloc[-1] or 0.0)
+
+        # Tính score
+        score = 0.0
+        score += 0.4 if latest_ma5 > latest_ma20 else -0.2
+        score += 0.3 if latest_rsi < 30 else (-0.3 if latest_rsi > 70 else 0)
+        score -= min(0.2, vol * 2)
+        score = max(-1.0, min(1.0, score))
+
+        # Chọn tín hiệu
+        if score > 0.35:
+            signal = "STRONG_BUY"
+        elif score > 0.05:
+            signal = "BUY"
+        elif score < -0.35:
+            signal = "STRONG_SELL"
+        elif score < -0.05:
+            signal = "SELL"
+        else:
+            signal = "HOLD"
+
+        return {
+            "ok": True,
+            "signal": signal,
+            "score": round(score, 3),
+            "note": "Tính toán MA & RSI thành công"
+        }
+
+    except Exception as e:
+        return {"ok": True, "signal": "HOLD", "score": 0.0, "note": f"Lỗi khi tính: {str(e)}"}
 # -----------------------
 # Simple Signal
 # -----------------------
@@ -86,66 +145,98 @@ def signal_simple(pred_path, horizon=7):
 # Advanced Signal
 # -----------------------
 def signal_advanced(pred_path):
-    if not os.path.exists(pred_path):
-        return {"ok": False, "msg": "Chưa có file dự đoán"}
+    """
+    Tính toán tín hiệu dựa trên MA5, MA20 và RSI14.
+    Luôn trả về 'signal' và 'score' hợp lệ, kể cả khi dữ liệu thiếu hoặc lỗi.
+    """
+    try:
+        # File không tồn tại
+        if not os.path.exists(pred_path):
+            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Chưa có file dự đoán"}
 
-    df = pd.read_csv(pred_path)
-    df = normalize_pred(df)
+        # Đọc CSV
+        df = pd.read_csv(pred_path)
 
-    close = df["Giá_đóng_cửa_dự_đoán"].astype(float)
+        # Chuẩn hóa dữ liệu (nếu có)
+        if "normalize_pred" in globals():
+            df = normalize_pred(df)
 
-    if len(close) < 21:
-        return {"ok": False, "msg": "Cần >= 21 ngày để tính MA20 & RSI"}
+        if "Giá_đóng_cửa_dự_đoán" not in df.columns:
+            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Thiếu cột Giá_đóng_cửa_dự_đoán"}
 
-    ma5 = ma(close, 5)
-    ma20 = ma(close, 20)
-    rsi14 = rsi(close, 14)
+        close = df["Giá_đóng_cửa_dự_đoán"].astype(float).dropna()
 
-    latest_ma5 = float(ma5.iloc[-1])
-    latest_ma20 = float(ma20.iloc[-1])
-    latest_rsi = float(rsi14.iloc[-1])
+        # Cần đủ 21 ngày để tính MA20 & RSI14
+        if len(close) < 21:
+            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Cần >= 21 ngày để tính MA20 & RSI"}
 
-    prev_ma5 = float(ma5.iloc[-2])
-    prev_ma20 = float(ma20.iloc[-2])
+        # Tính MA và RSI
+        ma5 = ma(close, 5).fillna(0.0)
+        ma20 = ma(close, 20).fillna(0.0)
+        rsi14 = rsi(close, 14).fillna(50.0)  # Nếu NaN, coi RSI = 50 trung lập
 
-    # MA cross
-    if (prev_ma5 <= prev_ma20) and (latest_ma5 > latest_ma20):
-        ma_cross = "MA5_cross_up"
-    elif (prev_ma5 >= prev_ma20) and (latest_ma5 < latest_ma20):
-        ma_cross = "MA5_cross_down"
-    else:
-        ma_cross = "no_cross"
+        latest_ma5 = float(ma5.iloc[-1] or 0.0)
+        latest_ma20 = float(ma20.iloc[-1] or 0.0)
+        latest_rsi = float(rsi14.iloc[-1] or 50.0)
 
-    vol = float(close.pct_change().rolling(10).std().iloc[-1] or 0.0)
+        prev_ma5 = float(ma5.iloc[-2] or 0.0)
+        prev_ma20 = float(ma20.iloc[-2] or 0.0)
 
-    score = 0.0
-    score += 0.4 if latest_ma5 > latest_ma20 else -0.2
-    score += 0.3 if latest_rsi < 30 else (-0.3 if latest_rsi > 70 else 0)
-    score -= min(0.2, vol * 2)
-    score = max(-1.0, min(1.0, score))
+        # Kiểm tra MA cross
+        if (prev_ma5 <= prev_ma20) and (latest_ma5 > latest_ma20):
+            ma_cross = "MA5_cross_up"
+        elif (prev_ma5 >= prev_ma20) and (latest_ma5 < latest_ma20):
+            ma_cross = "MA5_cross_down"
+        else:
+            ma_cross = "no_cross"
 
-    # Signal
-    if score > 0.35:
-        signal = "STRONG_BUY"
-    elif score > 0.05:
-        signal = "BUY"
-    elif score < -0.35:
-        signal = "STRONG_SELL"
-    elif score < -0.05:
-        signal = "SELL"
-    else:
-        signal = "HOLD"
+        # Độ biến động
+        vol = float(close.pct_change().rolling(10).std().iloc[-1] or 0.0)
 
-    return {
-        "ok": True,
-        "rsi": round(latest_rsi, 2),
-        "ma5": round(latest_ma5, 4),
-        "ma20": round(latest_ma20, 4),
-        "ma_cross": ma_cross,
-        "volatility": round(vol, 6),
-        "score": round(score, 3),
-        "signal": signal
-    }
+        # Tính score
+        score = 0.0
+        score += 0.4 if latest_ma5 > latest_ma20 else -0.2
+        if latest_rsi < 30:
+            score += 0.3
+        elif latest_rsi > 70:
+            score -= 0.3
+        score -= min(0.2, vol * 2)
+
+        # Bảo vệ NaN
+        if np.isnan(score):
+            score = 0.0
+
+        # Giới hạn score
+        score = max(-1.0, min(1.0, score))
+
+        # Gán tín hiệu dựa trên score
+        if score > 0.35:
+            signal = "STRONG_BUY"
+        elif score > 0.05:
+            signal = "BUY"
+        elif score < -0.35:
+            signal = "STRONG_SELL"
+        elif score < -0.05:
+            signal = "SELL"
+        else:
+            signal = "HOLD"
+
+        return {
+            "ok": True,
+            "rsi": round(latest_rsi, 2),
+            "ma5": round(latest_ma5, 4),
+            "ma20": round(latest_ma20, 4),
+            "ma_cross": ma_cross,
+            "volatility": round(vol, 6),
+            "score": round(score, 3),
+            "signal": signal,
+            "note": "Tính toán MA & RSI"
+        }
+
+    except Exception as e:
+        # Nếu có lỗi bất ngờ, vẫn trả HOLD và score = 0
+        return {"ok": True, "signal": "HOLD", "score": 0.0, "note": f"Lỗi khi tính: {str(e)}"}
+
 
 
 # -----------------------

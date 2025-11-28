@@ -135,16 +135,15 @@ def train_lstm(file_path, progress_callback=None, epochs=80, batch_size=16):
     X_test = np.array(X_test)
     y_test = np.array(y_test)
 
-    pb(25, "Xây dựng mô hình BiLSTM...")
+    pb(25, "Xây dựng mô hình LSTM...")
 
     model = Sequential([
-        Bidirectional(LSTM(64, return_sequences=True), input_shape=(N_STEPS, 5)),
-        Dropout(0.15),
+        LSTM(64, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])),
+        Dropout(0.2),
         LSTM(32),
-        Dense(64, activation="relu"),
-        Dropout(0.1),
+        Dropout(0.2),
         Dense(4)
-    ])
+    ])  
 
     model.compile(optimizer="nadam", loss=Huber(delta=1.0))
     early_stop = EarlyStopping(monitor="val_loss", patience=12, restore_best_weights=True)
@@ -198,7 +197,50 @@ def train_lstm(file_path, progress_callback=None, epochs=80, batch_size=16):
 
     out_path = os.path.join(PREDICT_DIR, os.path.basename(file_path).replace(".csv", "_du_doan.csv"))
     out_df.to_csv(out_path, index=False, encoding="utf-8-sig")
+    MODELS_DIR = os.path.join(BASE_DIR, "MODELS")
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    model_path = os.path.join(MODELS_DIR, os.path.basename(file_path).replace(".csv", "_lstm.h5"))
+    model.save(model_path)
+    pb(98, f"Lưu model LSTM: {model_path}")
 
     pb(100, "Hoàn tất!")
 
-    return out_path, mae, rmse
+    return out_path, mae, rmse,model_path
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Dự báo giá cổ phiếu bằng LSTM")
+    parser.add_argument(
+        "--file", "-f",
+        required=True,
+        help="Đường dẫn file CSV dữ liệu cổ phiếu"
+    )
+    parser.add_argument(
+        "--epochs", "-e",
+        type=int,
+        default=80,
+        help="Số epoch để huấn luyện (mặc định 80)"
+    )
+    parser.add_argument(
+        "--batch_size", "-b",
+        type=int,
+        default=16,
+        help="Kích thước batch (mặc định 16)"
+    )
+    args = parser.parse_args()
+
+    # Hàm progress đơn giản in ra console
+    def progress(percent, msg=""):
+        print(f"[{percent}%] {msg}")
+
+    try:
+        out_path, mae, rmse, model_path = train_lstm(
+    args.file,
+    progress_callback=progress,
+    epochs=args.epochs,
+    batch_size=args.batch_size
+)
+        print(f"\nHoàn tất! File dự đoán: {out_path}")
+        print(f"MAE: {mae:.4f} | RMSE: {rmse:.4f}")
+    except Exception as e:
+        print("Có lỗi xảy ra:", e)

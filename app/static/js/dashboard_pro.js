@@ -305,14 +305,41 @@
   });
 
   el("btnSignalAdvanced").addEventListener("click", async () => {
-    const f = el("fileSelect").value;
-    const j = await callSignal("/signal/advanced", f);
-    renderSignal(j);
-  });
+    const f = el("fileSelect").value;  // Tên file do user chọn
+    if (!f) {
+      alert("Chưa chọn file!");
+      return;
+    }
 
+    const formData = new FormData();
+    formData.append("file", f);  // Gửi FormData để FastAPI nhận Form(...)
+
+    try {
+      const res = await fetch("/signal/advanced", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!res.ok) throw new Error("Server lỗi");
+
+      const j = await res.json();
+      renderSignal(j);  // Hàm hiển thị kết quả
+      console.log("DEBUG signal:", j.signal, j);
+    } catch (err) {
+      console.error(err);
+      alert("Không thể lấy signal!");
+    }
+  });
   el("btnSignalSummary").addEventListener("click", async () => {
     const f = el("fileSelect").value;
     const j = await callSignal("/signal/summary", f);
+    renderSignal(j);
+  });
+  el("btnSignalRecommend").addEventListener("click", async () => {
+    const f = el("fileSelect").value;
+    if (!f) return alert("Chưa chọn file!");
+
+    const j = await callSignal("/signal/recommend", f);
     renderSignal(j);
   });
 
