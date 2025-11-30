@@ -1,5 +1,7 @@
-/* app/static/css/dashboard_pro.css */
-/* Dark-first professional theme (TradingView-like) */
+/* ============================================================
+   DASHBOARD PRO — TRADINGVIEW STYLE (FULL CLEAN VERSION)
+   ============================================================ */
+
 :root{
   --bg:#071226;
   --panel:#09162a;
@@ -11,97 +13,305 @@
 }
 
 *{box-sizing:border-box}
-body{margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background:linear-gradient(180deg,#05101a,#071226 60%); color:#e6eef6;}
+body{
+  margin:0;
+  font-family:Inter,system-ui,Segoe UI,Roboto,Arial;
+  background:linear-gradient(180deg,#05101a,#071226 60%);
+  color:#e6eef6;
+}
 
-/* layout */
-.dp-root{display:flex; min-height:100vh; gap:0}
-.dp-sidebar{width:320px; background:var(--panel); padding:28px; display:flex; flex-direction:column; gap:12px; border-right:1px solid rgba(255,255,255,0.03)}
-.dp-brand{display:flex; gap:12px; align-items:center}
-.dp-brand img{width:56px;height:56px;border-radius:10px;object-fit:cover}
-.dp-brand .title{font-weight:700;font-size:18px}
-.dp-brand .subtitle{font-size:12px;color:var(--muted)}
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+.dp-root{
+  display:flex;
+  min-height:100vh;
+  gap:0;
+}
 
-.dp-controls .label{color:var(--muted);font-size:13px}
+.dp-sidebar{
+  width:320px;
+  background:var(--panel);
+  padding:28px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  border-right:1px solid rgba(255,255,255,0.03);
+}
+
+.dp-brand{
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+.dp-brand img{
+  width:56px;height:56px;
+  border-radius:10px;
+  object-fit:cover;
+}
+.dp-brand .title{
+  font-weight:700;
+  font-size:18px;
+}
+.dp-brand .subtitle{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.dp-controls .label{
+  color:var(--muted);
+  font-size:13px;
+}
 .btn-block{width:100%}
-.divider{border-top:1px solid rgba(255,255,255,0.04); margin:12px 0}
+.divider{
+  border-top:1px solid rgba(255,255,255,0.04);
+  margin:12px 0;
+}
 
-.btn-ghost{background:transparent; border:1px solid rgba(255,255,255,0.04); color:inherit; padding:10px; border-radius:8px; text-align:left}
+.dp-footer{
+  margin-top:auto;
+  color:var(--muted);
+}
 
-.dp-footer{margin-top:auto;color:var(--muted)}
-
-/* main */
+/* ============================================================
+   MAIN AREA
+   ============================================================ */
 .dp-main{flex:1;padding:24px 32px}
-.dp-header{display:flex;justify-content:space-between;align-items:center}
-.dp-header h1{margin:0;font-size:22px}
+
+.dp-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.dp-header h1{
+  margin:0;
+  font-size:22px;
+}
+
 .muted{color:var(--muted)}
 
-.dp-chart .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; padding:12px}
-.chart-topbar{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px}
-.chart-title{font-weight:700}
-.chart-tools .range-btn{margin-right:6px}
+.dp-chart .card{
+  background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));
+  border-radius:12px;
+  padding:12px;
+}
 
-/* signal card */
-.signal-card{background:rgba(255,255,255,0.02); padding:12px; border-radius:10px}
-.signal-head{display:flex; align-items:center; gap:12px; margin-bottom:8px}
-.signal-label{font-weight:700}
-.signal-pre{background:rgba(0,0,0,0.25); padding:10px; border-radius:8px; color:#e6eef6; white-space:pre-wrap; min-height:90px}
+.chart-topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:8px;
+}
 
-/* table */
-table{width:100%}
-.card-header{font-weight:700}
+.chart-title{
+  font-weight:700;
+}
 
-/* light mode override */
+/* ============================================================
+   SIGNAL CARDS
+   ============================================================ */
+.signal-card{
+  background:rgba(255,255,255,0.02);
+  padding:12px;
+  border-radius:10px;
+}
+
+.signal-head{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-bottom:8px;
+}
+
+.signal-label{
+  font-weight:700;
+}
+
+.signal-pre{
+  background:rgba(0,0,0,0.25);
+  padding:10px;
+  border-radius:8px;
+  color:#e6eef6;
+  white-space:pre-wrap;
+  min-height:90px;
+}
+
+/* ============================================================
+   LIGHT MODE
+   ============================================================ */
 body.light-mode{
-  background: linear-gradient(180deg,#f5f7fb,#eef2ff);
+  background:linear-gradient(180deg,#f5f7fb,#eef2ff);
   color:#0f172a;
 }
-body.light-mode .dp-sidebar{background:#f8fafc; color:#0f172a; border-right:1px solid rgba(15,23,42,0.04)}
-body.light-mode .dp-brand .subtitle{color:#6b7280}
-body.light-mode .dp-chart .card, body.light-mode .card{background:#ffffff; color:#0f172a}
+body.light-mode .dp-sidebar{
+  background:#f8fafc;
+  color:#0f172a;
+  border-right:1px solid rgba(15,23,42,0.04);
+}
+body.light-mode .dp-brand .subtitle{
+  color:#6b7280;
+}
+body.light-mode .dp-chart .card,
+body.light-mode .card{
+  background:#ffffff;
+  color:#0f172a;
+}
 
-/* responsive */
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
 @media(max-width:1000px){
   .dp-root{flex-direction:column}
   .dp-sidebar{width:100%; order:2}
   .dp-main{order:1}
 }
 
-/* SIGNAL BUTTONS – TradingView Style */
-.signal-btn-group {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+/* ============================================================
+   POPUP
+   ============================================================ */
+.modal-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.55);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  backdrop-filter:blur(4px);
+  z-index:99999;
+  animation:fadeIn .25s ease-out;
 }
 
-.signal-btn {
-  padding: 8px 16px;
-  border-radius: 10px;
-  border: 1px solid #ccc;
-  font-weight: 600;
-  transition: 0.2s;
-  background: white;
-  cursor: pointer;
+@keyframes fadeIn{
+  from{opacity:0}
+  to{opacity:1}
 }
 
-.signal-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+.modal-box{
+  width:420px;
+  background:#111827;
+  border-radius:18px;
+  padding:26px 24px;
+  text-align:center;
+  color:#e2e8f0;
+  box-shadow:0 12px 32px rgba(0,0,0,0.4);
+  animation:popupShow .28s ease-out;
 }
 
-/* COLORS */
-.signal-btn.blue    { color:#2563eb; border-color:#2563eb80; }
-.signal-btn.green   { color:#16a34a; border-color:#16a34a80; }
-.signal-btn.orange  { color:#d97706; border-color:#d9770680; }
-.signal-btn.cyan    { color:#0891b2; border-color:#0891b280; }
-.signal-btn.purple  { color:#7c3aed; border-color:#7c3aed80; }
-.signal-btn.red     { color:#dc2626; border-color:#dc262680; }
-::-webkit-scrollbar {
-    width: 0px;
-    height: 0px;
+@keyframes popupShow{
+  from{transform:translateY(-25px) scale(.94); opacity:0}
+  to{transform:translateY(0) scale(1); opacity:1}
 }
 
-* {
-    scrollbar-width: none;       /* Firefox */
-    -ms-overflow-style: none;    /* IE + Edge */
+.modal-icon{font-size:48px;color:#38bdf8;margin-bottom:14px}
+.modal-title{font-size:22px;font-weight:700;margin-bottom:10px}
+.modal-message{font-size:15px;line-height:1.55;margin-bottom:20px}
+
+.modal-actions{display:flex;justify-content:center;gap:16px}
+.modal-btn{
+  padding:10px 22px;
+  border-radius:10px;
+  font-weight:600;
+  cursor:pointer;
+  border:none;
+  transition:.25s;
+}
+.modal-ok{
+  background:#38bdf8;
+  color:#0f172a;
+}
+.modal-ok:hover{
+  background:#0ea5e9;
+  transform:translateY(-2px);
+  box-shadow:0 8px 18px rgba(56,189,248,0.3);
+}
+.modal-cancel{
+  background:#374151;
+  color:#e2e8f0;
+}
+.modal-cancel:hover{
+  background:#4b5563;
+  transform:translateY(-2px);
+}
+
+/* ============================================================
+   ★★ ADVANCED DAILY TABLE (PRO VERSION) ★★
+   ============================================================ */
+
+.adv-box{
+  max-height:280px;
+  overflow-y:auto;
+  background:#0b0f19;
+  border-radius:10px;
+  padding:0;
+  border:1px solid rgba(255,255,255,0.08);
+  box-shadow:inset 0 0 10px rgba(0,0,0,0.5);
+}
+
+/* Table */
+.adv-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px;
+  font-family:"Inter","Segoe UI",Arial;
+  color:#dbe4f3;
+}
+
+/* Header */
+.adv-table thead th{
+  position:sticky;
+  top:0;
+  background:#111a2b;
+  color:#9bd2ff;
+  padding:10px;
+  border-bottom:1px solid rgba(255,255,255,0.08);
+  font-weight:600;
+  text-align:left;
+  z-index:10;
+}
+
+/* Rows */
+.adv-table tbody tr:nth-child(odd){
+  background:rgba(255,255,255,0.03);
+}
+.adv-table tbody tr:nth-child(even){
+  background:rgba(255,255,255,0.015);
+}
+
+.adv-table tbody tr:hover{
+  background:rgba(56,189,248,0.10);
+  transition:background .15s;
+}
+
+/* Cells */
+.adv-table td{
+  padding:8px 10px;
+  border-bottom:1px solid rgba(255,255,255,0.05);
+  white-space:nowrap;
+}
+
+/* Coloring */
+.adv-table td:first-child{
+  color:#ffe9a6;
+  font-weight:600;
+}
+
+.adv-table .price{
+  color:#ffcd8a;
+  font-weight:600;
+}
+
+.adv-table .green{
+  color:#4ade80 !important;
+  font-weight:600;
+}
+
+.adv-table .red{
+  color:#f87171 !important;
+  font-weight:600;
+}
+
+.adv-table .yellow{
+  color:#facc15 !important;
+  font-weight:600;
 }

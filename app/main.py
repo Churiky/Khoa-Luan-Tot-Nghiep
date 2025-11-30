@@ -1,3 +1,6 @@
+# ============================================================
+#                      IMPORTS
+# ============================================================
 import os
 import pandas as pd
 import numpy as np
@@ -7,37 +10,36 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import load_model
+import uuid
+
+# MODULE của bạn
 from .train_model import train_lstm
 from .analysis import analyze_monthly, analyze_quarterly
 from .signals import signal_recommend, signal_simple, signal_advanced, signal_summary
-from tensorflow.keras.models import load_model
+from .get_data_api import download_stock
 
+
+# ============================================================
+#                      PATH SETUP
+# ============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 MODELS_DIR = os.path.join(PROJECT_ROOT, "MODELS")
 DATA_DIR = os.path.join(PROJECT_ROOT, "DATA")
 PRED_DIR = os.path.join(PROJECT_ROOT, "DATA_PREDICT")
+
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(PRED_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
+
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 app = FastAPI(title="Stock Prediction API")
-def model_file_path(file_name: str):
-    base = os.path.basename(file_name).replace(".csv", "_lstm.h5")
-    return os.path.join(MODELS_DIR, base)
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# STATIC
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
-app.mount("/predictions", StaticFiles(directory=PRED_DIR), name="predictions")
+
+def model_file_path(file_name: str):
+    return os.path.join(MODELS_DIR, file_name.replace(".csv", "_lstm.h5"))
 
 
 def pred_file_name(file):
@@ -48,9 +50,43 @@ def pred_file_path(file):
     return os.path.join(PRED_DIR, pred_file_name(file))
 
 
-# ============================
-# API LIST FILES
-# ============================
+# ============================================================
+#                      CORS
+# ============================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+#                      STATIC ROUTES
+# ============================================================
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+app.mount("/predictions", StaticFiles(directory=PRED_DIR), name="predictions")
+
+
+# ============================================================
+#                      DOWNLOAD CSV FROM API
+# ============================================================
+@app.post("/api/download")
+async def download_symbol(symbol: str = Form(...)):
+    df, source = download_stock(symbol)
+    if df is None:
+        return {"ok": False, "msg": "Không thể lấy dữ liệu từ API!"}
+
+    save_path = os.path.join(DATA_DIR, f"{symbol.upper()}.csv")
+    df.to_csv(save_path, index=False, encoding="utf-8-sig")
+
+    return {"ok": True, "file": f"{symbol.upper()}.csv", "source": source}
+
+
+# ============================================================
+#                      CSV LIST
+# ============================================================
 @app.get("/files")
 def list_files():
     try:
@@ -60,9 +96,9 @@ def list_files():
         return {"ok": False, "msg": str(e)}
 
 
-# ============================
-# UPLOAD CSV
-# ============================
+# ============================================================
+#                      UPLOAD CSV
+# ============================================================
 @app.post("/upload")
 async def upload_csv(file: UploadFile):
     try:
@@ -73,19 +109,32 @@ async def upload_csv(file: UploadFile):
     except Exception as e:
         return {"ok": False, "msg": str(e)}
 
-# ============================
-# TRAIN MODEL
-# ============================
+
+# ============================================================
+#                      TRAIN MODEL
+# ============================================================
 @app.post("/train")
-async def train(file: str = Form(...)):
-    try:
-        data_path = os.path.join(DATA_DIR, file)
-        out_path, mae, rmse, model_path = train_lstm(data_path)
+async def train(file: str = Form(...), force: int = Form(0)):
+    data_path = os.path.join(DATA_DIR, file)
+    pred_path = pred_file_path(file)
+    model_path = model_file_path(file)
+
+    if os.path.exists(pred_path) and os.path.exists(model_path) and force == 0:
         return {
             "ok": True,
-            "msg": "Train thành công",
+            "need_confirm": True,
+            "msg": f"⛔ File '{file}' đã được train.",
+            "predict_file": os.path.basename(pred_path),
+            "model_file": os.path.basename(model_path)
+        }
+
+    try:
+        out_path, future_path, mae, rmse, mpath, merged_data = train_lstm(data_path)
+        return {
+            "ok": True,
+            "msg": "Train thành công",  
             "predict_file": os.path.basename(out_path),
-            "model_file": os.path.basename(model_path),
+            "model_file": os.path.basename(mpath),
             "mae": mae,
             "rmse": rmse,
         }
@@ -93,213 +142,285 @@ async def train(file: str = Form(...)):
         return {"ok": False, "msg": str(e)}
 
 
-# CHECK PREDICT EXISTS
+# ============================================================
+#             UTILITY: SAFE JSON FOR FLOATS (NO NAN)
+# ============================================================
+def safe_float_list(col):
+    arr = []
+    for v in col:
+        if pd.isna(v) or np.isinf(v):
+            arr.append(None)
+        else:
+            arr.append(float(v))
+    return arr
+
+
+# ============================================================
+#                   PREDICT DATA (FULL + FUTURE)
+# ============================================================
 @app.get("/predict/check")
 def check_predict(file: str):
     return {"exists": os.path.exists(pred_file_path(file))}
 
 
-# ============================
-# FIXED API /predict/data
-# ============================
 @app.get("/predict/data")
-def predict_data(file: str, range: int = 365):
+def predict_data(file: str, range_days: int = 365, start_date: str = None, end_date: str = None):
 
+    if start_date or end_date:
+        pred_file = os.path.join(PRED_DIR, file.replace(".csv", "_du_doan_tuong_lai.csv"))
+        if not os.path.exists(pred_file):
+            return {"ok": False, "msg": "Chưa có dữ liệu dự đoán tương lai"}
+
+        df = pd.read_csv(pred_file)
+        df["Ngày"] = pd.to_datetime(df["Ngày"], errors="coerce")
+        df = df.dropna(subset=["Ngày"]).sort_values("Ngày").reset_index(drop=True)
+
+        if start_date:
+            df = df[df["Ngày"] >= pd.to_datetime(start_date)]
+        if end_date:
+            df = df[df["Ngày"] <= pd.to_datetime(end_date)]
+
+        if df.empty:
+            return {"ok": False, "msg": "Không có dữ liệu trong khoảng thời gian này"}
+
+        return {
+            "ok": True,
+            "dates": df["Ngày"].dt.strftime("%Y-%m-%d").tolist(),
+            "real": safe_float_list(df.get("Giá_đóng_cửa_thực_tế", df.get("Giá_đóng_cửa_dự_đoán", []))),
+            "pred": safe_float_list(df["Giá_đóng_cửa_dự_đoán"]),
+        }
+
+    # Trường hợp user không nhập date → trả dữ liệu bình thường để vẽ biểu đồ
     pred_path = pred_file_path(file)
     if not os.path.exists(pred_path):
         return JSONResponse({"ok": False, "msg": "Chưa có dữ liệu dự đoán"}, status_code=400)
 
     df = pd.read_csv(pred_path)
-
-    # Convert date
     df["Ngày"] = pd.to_datetime(df["Ngày"], errors="coerce")
-    df = df.dropna(subset=["Ngày"])
+    df = df.dropna(subset=["Ngày"]).sort_values("Ngày").reset_index(drop=True)
 
-    # Limit range
-    if range > 0:
-        df = df.tail(range)
-
+    df = df.tail(range_days)
     return {
         "ok": True,
         "dates": df["Ngày"].dt.strftime("%Y-%m-%d").tolist(),
-        "real": df["Giá_đóng_cửa_thực_tế"].astype(float).tolist(),
-        "pred": df["Giá_đóng_cửa_dự_đoán"].astype(float).tolist()
+        "real": safe_float_list(df.get("Giá_đóng_cửa_thực_tế", df.get("Giá_đóng_cửa_dự_đoán", []))),
+        "pred": safe_float_list(df["Giá_đóng_cửa_dự_đoán"]),
     }
 
+# ============================================================
+#                 FILTER PRED FILE FOR MONTHLY/QUARTERLY
+# ============================================================
+def filter_pred_file(pred_path, start_date=None, end_date=None):
 
-# ============================
-# MONTHLY
-# ============================
+    if not start_date and not end_date:
+        return pred_path, False
+
+    df = pd.read_csv(pred_path)
+    df["Ngày"] = pd.to_datetime(df["Ngày"], errors="coerce")
+
+    if start_date:
+        df = df[df["Ngày"] >= pd.to_datetime(start_date)]
+    if end_date:
+        df = df[df["Ngày"] <= pd.to_datetime(end_date)]
+
+    tmp = os.path.join(PRED_DIR, f"tmp_{uuid.uuid4().hex}.csv")
+    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    return tmp, True
+
+
+# ============================================================
+#                     MONTHLY / QUARTERLY
+# ============================================================
 @app.get("/predict/monthly")
-def monthly(file: str):
+def monthly(file: str, start_date: str = None, end_date: str = None):
+
     pred_path = pred_file_path(file)
-    data, err = analyze_monthly(pred_path)
-    if err:
-        return {"ok": False, "msg": err}
-    return {"ok": True, "data": data}
+    used, temp = filter_pred_file(pred_path, start_date, end_date)
+
+    try:
+        data, err = analyze_monthly(used)
+        if err: return {"ok": False, "msg": err}
+        return {"ok": True, "data": data}
+    finally:
+        if temp and os.path.exists(used):
+            os.remove(used)
 
 
-# ============================
-# QUARTERLY
-# ============================
 @app.get("/predict/quarterly")
-def quarterly(file: str):
+def quarterly(file: str, start_date: str = None, end_date: str = None):
+
     pred_path = pred_file_path(file)
-    data, err = analyze_quarterly(pred_path)
-    if err:
-        return {"ok": False, "msg": err}
-    return {"ok": True, "data": data}
+    used, temp = filter_pred_file(pred_path, start_date, end_date)
+
+    try:
+        data, err = analyze_quarterly(used)
+        if err: return {"ok": False, "msg": err}
+        return {"ok": True, "data": data}
+    finally:
+        if temp and os.path.exists(used):
+            os.remove(used)
 
 
-# ============================
-# DASHBOARD
-# ============================
+# ============================================================
+#                     DASHBOARD RENDER
+# ============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
     return templates.TemplateResponse("dashboard_pro.html", {"request": request})
 
 
-# ============================
-# SIGNALS
-# ============================
+# ============================================================
+#                     SIGNALS
+# ============================================================
 @app.post("/signal/simple")
 def api_signal_simple(file: str = Form(...), horizon: int = Form(7)):
-    pred_path = pred_file_path(file)
-    return signal_simple(pred_path, horizon)
+    return signal_simple(pred_file_path(file), horizon)
+
+
 @app.post("/signal/advanced")
-def api_signal_advanced(file: str = Form(...)):
-    """
-    Nhận tên file từ FormData, trả về signal luôn hợp lệ.
-    """
+def api_signal_advanced(
+    file: str = Form(...),
+    start_date: str = Form(None),
+    end_date: str = Form(None)
+):
+    pred_path = pred_file_path(file)
+
+    # 🔥 lọc file theo khoảng ngày user chọn
+    used, temp = filter_pred_file(pred_path, start_date, end_date)
+
     try:
-        pred_path = pred_file_path(file)
-        result = signal_advanced(pred_path)
-        # Bảo vệ tuyệt đối signal
-        if result.get("signal") not in ["STRONG_BUY","BUY","HOLD","SELL","STRONG_SELL"]:
+        result = signal_advanced(used)
+        if result.get("signal") not in ["STRONG_BUY", "BUY", "SELL", "STRONG_SELL"]:
             result["signal"] = "HOLD"
         return result
-    except Exception as e:
-        return {"ok": False, "signal": "HOLD", "score": 0.0, "note": f"Lỗi server: {str(e)}"}
+    finally:
+        if temp and os.path.exists(used):
+            os.remove(used)
+
+
 @app.post("/signal/summary")
-def api_signal_summary(file: str = Form(...)):
-    return signal_summary(PROJECT_ROOT, file)
-@app.post("/signal/recommend")
-def api_signal_recommend(file: str = Form(...)):
+def api_signal_summary(
+    file: str = Form(...),
+    start_date: str = Form(None),
+    end_date: str = Form(None)
+):
     pred_path = pred_file_path(file)
-    return signal_recommend(pred_path)
+    used, temp = filter_pred_file(pred_path, start_date, end_date)
+
+    try:
+        # Lưu ý: summary nhận file name → gửi file filtered
+        return signal_summary(PROJECT_ROOT, os.path.basename(used))
+    finally:
+        if temp and os.path.exists(used):
+            os.remove(used)
+
+
+@app.post("/signal/recommend")
+def api_signal_recommend(
+    file: str = Form(...),
+    start_date: str = Form(None),
+    end_date: str = Form(None)
+):
+    pred_path = pred_file_path(file)
+    used, temp = filter_pred_file(pred_path, start_date, end_date)
+
+    try:
+        return signal_recommend(used)
+    finally:
+        if temp and os.path.exists(used):
+            os.remove(used)
+
+
+# ============================================================
+#             NEXT MONTH / NEXT QUARTER (GIỮ NGUYÊN)
+# ============================================================
 @app.get("/predict/next-month")
 def predict_next_month(file: str):
-    # Kiểm tra file dự đoán
+
     pred_path = pred_file_path(file)
-    if not os.path.exists(pred_path):
-        return {"ok": False, "msg": "Chưa có file dự đoán"}
-
-    # Kiểm tra file model
     model_path = model_file_path(file)
-    if not os.path.exists(model_path):
-        return {"ok": False, "msg": "Chưa có file model"}
 
-    # Load dữ liệu dự đoán
+    if not os.path.exists(pred_path) or not os.path.exists(model_path):
+        return {"ok": False, "msg": "Thiếu file dự đoán hoặc model"}
+
     df = pd.read_csv(pred_path)
     df["Ngày"] = pd.to_datetime(df["Ngày"], errors="coerce")
     df = df.dropna().sort_values("Ngày")
 
-    # Load model LSTM
     model = load_model(model_path)
+    feature_cols = ["open","high","low","close","volume"]
 
-    # Chọn đúng 5 features đã dùng lúc train
-    feature_cols = ["open", "high", "low", "close", "volume"]
+    for c in feature_cols:
+        if c not in df.columns:
+            df[c] = df["Giá_đóng_cửa_dự_đoán"]
 
-    # Nếu file predict không có đủ cột, fallback dùng giá close lặp lại
-    if not all(col in df.columns for col in feature_cols):
-        # chuyển các cột giả lập từ close
-        for i, col in enumerate(feature_cols):
-            if col not in df.columns:
-                df[col] = df["Giá_đóng_cửa_dự_đoán"] if "Giá_đóng_cửa_dự_đoán" in df.columns else df["close"]
-
-    # Chuẩn hóa dữ liệu
     scaler = MinMaxScaler()
     scaled = scaler.fit_transform(df[feature_cols].values)
 
-    window_size = 60
-    last_sequence = scaled[-window_size:]
-    last_sequence = last_sequence.reshape(1, window_size, len(feature_cols))
+    if len(scaled) < 60:
+        return {"ok": False, "msg": "Không đủ dữ liệu"}
 
-    # Dự báo 30 ngày tiếp theo
-    next_month_scaled = []
-    current_sequence = last_sequence.copy()
+    seq = scaled[-60:].reshape(1,60,5)
+    out = []
+
     for _ in range(30):
-        pred_scaled = model.predict(current_sequence, verbose=0)  # shape=(1,4)
-        next_month_scaled.append(pred_scaled[0,3])  # cột close
+        p = model.predict(seq, verbose=0)
+        newc = p[0,3]
 
-        # cập nhật sequence: bỏ dòng đầu, thêm giá dự đoán
-        new_row = current_sequence[:, -1, :].copy()
-        new_row[0,3] = pred_scaled[0,3]  # chỉ cập nhật close
-        current_sequence = np.append(current_sequence[:,1:,:], new_row.reshape(1,1,len(feature_cols)), axis=1)
+        r = seq[:, -1, :].copy()
+        r[0,3] = newc
+        seq = np.append(seq[:,1:,:], r.reshape(1,1,5), axis=1)
 
-    # Chuyển về giá gốc
-    # scaler đã fit 5 features → tạo array đủ 5 cột, chỉ set cột close mới
-    next_month_array = np.zeros((30, len(feature_cols)))
-    next_month_array[:,3] = next_month_scaled
-    next_month = scaler.inverse_transform(next_month_array)[:,3]
-    next_month = [float(p) for p in next_month]
+        out.append(newc)
 
-    return {"ok": True, "next_month": next_month}
+    arr = np.zeros((30,5))
+    arr[:,3] = out
+    inv = scaler.inverse_transform(arr)[:,3]
+
+    return {"ok": True, "next_month": [float(x) for x in inv]}
+
+
 @app.get("/predict/next-quarter")
 def predict_next_quarter(file: str):
-    # Kiểm tra file dự đoán
+
     pred_path = pred_file_path(file)
-    if not os.path.exists(pred_path):
-        return {"ok": False, "msg": "Chưa có file dự đoán"}
-
-    # Kiểm tra file model
     model_path = model_file_path(file)
-    if not os.path.exists(model_path):
-        return {"ok": False, "msg": "Chưa có file model"}
 
-    # Load dữ liệu dự đoán
+    if not os.path.exists(pred_path) or not os.path.exists(model_path):
+        return {"ok": False, "msg": "Thiếu file dự đoán hoặc model"}
+
     df = pd.read_csv(pred_path)
-    df["Ngày"] = pd.to_datetime(df["Ngày"], errors="coerce")
+    df["Ngày"] = pd.to_datetime(df["Ngày"])
     df = df.dropna().sort_values("Ngày")
 
-    # Load model LSTM
     model = load_model(model_path)
+    feature_cols = ["open","high","low","close","volume"]
 
-    # Chọn đúng 5 features
-    feature_cols = ["open", "high", "low", "close", "volume"]
-    if not all(col in df.columns for col in feature_cols):
-        for i, col in enumerate(feature_cols):
-            if col not in df.columns:
-                df[col] = df["Giá_đóng_cửa_dự_đoán"] if "Giá_đóng_cửa_dự_đoán" in df.columns else df["close"]
+    for c in feature_cols:
+        if c not in df.columns:
+            df[c] = df["Giá_đóng_cửa_dự_đoán"]
 
-    # Chuẩn hóa dữ liệu
     scaler = MinMaxScaler()
     scaled = scaler.fit_transform(df[feature_cols].values)
 
-    window_size = 60
-    last_sequence = scaled[-window_size:]
-    last_sequence = last_sequence.reshape(1, window_size, len(feature_cols))
+    if len(scaled) < 60:
+        return {"ok": False, "msg": "Không đủ dữ liệu"}
 
-    # Dự báo 90 ngày tiếp theo
-    next_quarter_scaled = []
-    current_sequence = last_sequence.copy()
+    seq = scaled[-60:].reshape(1,60,5)
+    out = []
+
     for _ in range(90):
-        pred_scaled = model.predict(current_sequence, verbose=0)  # shape=(1,4)
-        next_quarter_scaled.append(pred_scaled[0,3])  # chỉ lấy cột close
+        p = model.predict(seq, verbose=0)
+        newc = p[0,3]
 
-        # cập nhật sequence: bỏ dòng đầu, thêm giá dự đoán
-        new_row = current_sequence[:, -1, :].copy()
-        new_row[0,3] = pred_scaled[0,3]
-        current_sequence = np.append(current_sequence[:,1:,:], new_row.reshape(1,1,len(feature_cols)), axis=1)
+        r = seq[:,-1,:].copy()
+        r[0,3] = newc
+        seq = np.append(seq[:,1:,:], r.reshape(1,1,5), axis=1)
 
-    # Chuyển về giá gốc
-    next_quarter_array = np.zeros((90, len(feature_cols)))
-    next_quarter_array[:,3] = next_quarter_scaled
-    next_quarter = scaler.inverse_transform(next_quarter_array)[:,3]
-    next_quarter = [float(p) for p in next_quarter]
+        out.append(newc)
 
-    return {"ok": True, "next_quarter": next_quarter}
+    arr = np.zeros((90,5))
+    arr[:,3] = out
+    inv = scaler.inverse_transform(arr)[:,3]
 
-@app.get("/signal/recommend")
-def recommend(file: str):
-    return signal_summary(PROJECT_ROOT, file)
+    return {"ok": True, "next_quarter": [float(x) for x in inv]}

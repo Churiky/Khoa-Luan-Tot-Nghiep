@@ -1,294 +1,261 @@
-# app/signals.py
 import os
-import numpy as np
 import pandas as pd
-from .analysis import get_predict_path, analyze_monthly, analyze_quarterly
+import numpy as np
 
 
-# -----------------------
-# Helpers
-# -----------------------
-def normalize_pred(df):
-    """Chuẩn hóa file dự đoán: đổi 'Ngày' → 'date'"""
+# ============================================================
+#                   🔧 UTILITY & INDICATORS
+# ============================================================
+
+def load_pred_file(pred_path):
+    """Load file + chuẩn hóa cột ngày"""
+    if not os.path.exists(pred_path):
+        return None, "File dự đoán không tồn tại"
+
+    df = pd.read_csv(pred_path)
+
+    # Chuẩn hóa cột ngày
     if "Ngày" in df.columns:
-        df = df.rename(columns={"Ngày": "date"})
+        df["date"] = pd.to_datetime(df["Ngày"], errors="coerce")
+    elif "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    else:
+        return None, "Không tìm thấy cột Ngày"
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"])
-
-    return df.sort_values("date")
+    df = df.dropna(subset=["date"]).sort_values("date")
+    return df, None
 
 
 def ma(series, window):
     return series.rolling(window).mean()
 
 
-def rsi(series, period=14):
-    delta = series.diff()
+def ema(series, span):
+    return series.ewm(span=span, adjust=False).mean()
+
+
+def compute_rsi(close, period=14):
+    delta = close.diff()
     up = delta.clip(lower=0)
-    down = -1 * delta.clip(upper=0)
+    down = (-delta.clip(upper=0)).abs()
 
-    ma_up = up.ewm(alpha=1/period, min_periods=period).mean()
-    ma_down = down.ewm(alpha=1/period, min_periods=period).mean()
+    avg_up = up.rolling(period).mean()
+    avg_down = down.rolling(period).mean()
 
-    rs = ma_up / (ma_down + 1e-9)
+    rs = avg_up / (avg_down + 1e-9)
     return 100 - (100 / (1 + rs))
 
-def signal_recommend(pred_path):
-    """
-    Hàm tính toán tín hiệu mua/bán dựa trên dự đoán giá đóng cửa.
-    Luôn trả về một signal hợp lệ: STRONG_BUY, BUY, HOLD, SELL, STRONG_SELL
-    """
-    # Kiểm tra file
-    if not os.path.exists(pred_path):
-        return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Chưa có file dự đoán"}
 
-    try:
-        df = pd.read_csv(pred_path)
-        df = normalize_pred(df)
+def compute_macd(close):
+    """MACD tiêu chuẩn 12-26-9"""
+    ema12 = ema(close, 12)
+    ema26 = ema(close, 26)
+    macd_line = ema12 - ema26
+    signal_line = ema(macd_line, 9)
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
 
-        if "Giá_đóng_cửa_dự_đoán" not in df.columns:
-            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Thiếu cột Giá_đóng_cửa_dự_đoán"}
 
-        close = df["Giá_đóng_cửa_dự_đoán"].astype(float)
+def compute_roc(close, period=10):
+    return close.pct_change(period) * 100
 
-        if len(close) < 21:
-            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Cần >= 21 ngày để tính MA20 & RSI"}
 
-        # Tính MA và RSI
-        ma5 = ma(close, 5)
-        ma20 = ma(close, 20)
-        rsi14 = rsi(close, 14)
+# ============================================================
+#                🚀 SIMPLE SIGNAL (NHANH)
+# ============================================================
 
-        latest_ma5 = float(ma5.iloc[-1])
-        latest_ma20 = float(ma20.iloc[-1])
-        latest_rsi = float(rsi14.iloc[-1])
-
-        vol = float(close.pct_change().rolling(10).std().iloc[-1] or 0.0)
-
-        # Tính score
-        score = 0.0
-        score += 0.4 if latest_ma5 > latest_ma20 else -0.2
-        score += 0.3 if latest_rsi < 30 else (-0.3 if latest_rsi > 70 else 0)
-        score -= min(0.2, vol * 2)
-        score = max(-1.0, min(1.0, score))
-
-        # Chọn tín hiệu
-        if score > 0.35:
-            signal = "STRONG_BUY"
-        elif score > 0.05:
-            signal = "BUY"
-        elif score < -0.35:
-            signal = "STRONG_SELL"
-        elif score < -0.05:
-            signal = "SELL"
-        else:
-            signal = "HOLD"
-
-        return {
-            "ok": True,
-            "signal": signal,
-            "score": round(score, 3),
-            "note": "Tính toán MA & RSI thành công"
-        }
-
-    except Exception as e:
-        return {"ok": True, "signal": "HOLD", "score": 0.0, "note": f"Lỗi khi tính: {str(e)}"}
-# -----------------------
-# Simple Signal
-# -----------------------
 def signal_simple(pred_path, horizon=7):
-    if not os.path.exists(pred_path):
-        return {"ok": False, "msg": "Chưa có file dự đoán"}
-
-    df = pd.read_csv(pred_path)
-    df = normalize_pred(df)
+    df, err = load_pred_file(pred_path)
+    if err: 
+        return {"ok": False, "msg": err}
 
     if "Giá_đóng_cửa_dự_đoán" not in df.columns:
         return {"ok": False, "msg": "Thiếu cột Giá_đóng_cửa_dự_đoán"}
 
-    close = df["Giá_đóng_cửa_dự_đoán"].astype(float).reset_index(drop=True)
+    close = df["Giá_đóng_cửa_dự_đoán"].astype(float)
 
-    if len(close) < horizon + 1:
-        return {"ok": False, "msg": f"Cần ít nhất {horizon+1} ngày dự đoán"}
+    if len(close) < 2:
+        return {"ok": True, "signal": "HOLD", "confidence": 0}
 
-    last = close.iloc[-(horizon + 1):].reset_index(drop=True)
-    start = float(last.iloc[0])
-    end = float(last.iloc[-1])
+    horizon = min(horizon, len(close) - 1)
+    pct_change = (close.iloc[-1] - close.iloc[-horizon]) / (close.iloc[-horizon] + 1e-9)
 
-    pct = (end - start) / (start + 1e-9)
-    vol = float(last.pct_change().abs().mean())
-
-    conf = min(1.0, max(0.0, abs(pct) / (0.02 + vol)))
-
-    if pct > 0.01:
+    # Logic đơn giản
+    if pct_change > 0.01:
         signal = "BUY"
-        trend = "up"
-    elif pct < -0.01:
+    elif pct_change < -0.01:
         signal = "SELL"
-        trend = "down"
     else:
         signal = "HOLD"
-        trend = "flat"
 
     return {
         "ok": True,
-        "trend": trend,
         "signal": signal,
-        "confidence": round(conf, 3),
-        "pct_change": round(pct, 4),
-        "note": f"Xét {horizon} ngày gần nhất"
+        "pct_change": float(pct_change)
     }
 
 
-# -----------------------
-# Advanced Signal
-# -----------------------
+# ============================================================
+#          🚀 ADVANCED SIGNAL – PRO LEVEL
+# ============================================================
+
 def signal_advanced(pred_path):
+    df, err = load_pred_file(pred_path)
+    if err:
+        return {"ok": False, "msg": err}
+
+    if "Giá_đóng_cửa_dự_đoán" not in df.columns:
+        return {"ok": False, "msg": "Thiếu cột Giá_đóng_cửa_dự_đoán"}
+
+    close = df["Giá_đóng_cửa_dự_đoán"].astype(float)
+
+    # ===============================
+    #     🔥 TÍNH TOÀN BỘ CHỈ BÁO
+    # ===============================
+    df["MA7"] = ma(close, 7)
+    df["MA20"] = ma(close, 20)
+    df["MA50"] = ma(close, 50)
+
+    df["RSI14"] = compute_rsi(close, 14)
+
+    macd_line, signal_line, histogram = compute_macd(close)
+    df["MACD"] = histogram
+
+    df["ROC10"] = compute_roc(close, 10)
+
+    # Output theo ngày cho giao diện
+    daily = df.apply(lambda r: {
+        "date": r["date"].strftime("%Y-%m-%d"),
+        "close": float(r["Giá_đóng_cửa_dự_đoán"]),
+        "ma7": None if pd.isna(r["MA7"]) else float(r["MA7"]),
+        "ma20": None if pd.isna(r["MA20"]) else float(r["MA20"]),
+        "ma50": None if pd.isna(r["MA50"]) else float(r["MA50"]),
+        "rsi": None if pd.isna(r["RSI14"]) else float(r["RSI14"]),
+        "macd": None if pd.isna(r["MACD"]) else float(r["MACD"]),
+        "roc": None if pd.isna(r["ROC10"]) else float(r["ROC10"]),
+    }, axis=1).tolist()
+
+    # ===============================
+    #       🔥 TÍNH SIGNAL CUỐI
+    # ===============================
+    last = df.iloc[-1]
+
+    score = 0
+    reasons = []
+
+    # MA trend
+    if last["MA7"] > last["MA20"] > last["MA50"]:
+        score += 0.4; reasons.append("MA Uptrend mạnh")
+    elif last["MA7"] > last["MA20"]:
+        score += 0.2; reasons.append("MA Uptrend")
+    elif last["MA7"] < last["MA20"] < last["MA50"]:
+        score -= 0.4; reasons.append("MA Downtrend mạnh")
+    else:
+        score -= 0.1
+
+    # RSI
+    if last["RSI14"] < 30:
+        score += 0.3; reasons.append("RSI Quá bán")
+    elif last["RSI14"] > 70:
+        score -= 0.3; reasons.append("RSI Quá mua")
+
+    # MACD
+    if last["MACD"] > 0:
+        score += 0.2; reasons.append("MACD dương")
+    else:
+        score -= 0.2; reasons.append("MACD âm")
+
+    # ROC (momentum)
+    if last["ROC10"] > 3:
+        score += 0.2; reasons.append("Momentum mạnh")
+    elif last["ROC10"] < -3:
+        score -= 0.2; reasons.append("Momentum giảm mạnh")
+
+    # Normalize score
+    score = max(-1, min(1, score))
+
+    # Decision
+    if score >= 0.5: final = "STRONG_BUY"
+    elif score >= 0.2: final = "BUY"
+    elif score <= -0.5: final = "STRONG_SELL"
+    elif score <= -0.2: final = "SELL"
+    else: final = "HOLD"
+
+    return {
+        "ok": True,
+        "overall_signal": final,
+        "score": float(round(score, 3)),
+        "reasons": reasons,
+        "daily": daily
+    }
+
+
+# ============================================================
+#            🚀 SUMMARY + RECOMMEND (PLACEHOLDER)
+# ============================================================
+
+def signal_recommend(pred_path):
+    return {"ok": True, "signal": "HOLD", "score": 0.0}
+
+
+def signal_summary(base_dir, file):
     """
-    Tính toán tín hiệu dựa trên MA5, MA20 và RSI14.
-    Luôn trả về 'signal' và 'score' hợp lệ, kể cả khi dữ liệu thiếu hoặc lỗi.
+    Summary = kết hợp Advanced + Recommend
+    FIX:
+    - Đọc đúng file path tạm
+    - Trả về daily cho dashboard
+    - Tính điểm trung bình rõ ràng
     """
     try:
-        # File không tồn tại
+        pred_path = os.path.join(base_dir, "DATA_PREDICT", file)
+
         if not os.path.exists(pred_path):
-            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Chưa có file dự đoán"}
+            return {"ok": False, "msg": "File dự đoán không tồn tại"}
 
-        # Đọc CSV
-        df = pd.read_csv(pred_path)
+        # --- gọi bản advanced ---
+        adv = signal_advanced(pred_path)
+        if not adv.get("ok", True):
+            return adv
 
-        # Chuẩn hóa dữ liệu (nếu có)
-        if "normalize_pred" in globals():
-            df = normalize_pred(df)
+        # --- gọi bản recommend ---
+        rec = signal_recommend(pred_path)
 
-        if "Giá_đóng_cửa_dự_đoán" not in df.columns:
-            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Thiếu cột Giá_đóng_cửa_dự_đoán"}
+        # --- điểm từng phần ---
+        adv_score = float(adv.get("score", 0.0))
+        rec_score = float(rec.get("score", 0.0))
 
-        close = df["Giá_đóng_cửa_dự_đoán"].astype(float).dropna()
+        # --- kết hợp với trọng số ---
+        combined_score = (adv_score * 0.75) + (rec_score * 0.25)
+        combined_score = max(-1, min(1, combined_score))
 
-        # Cần đủ 21 ngày để tính MA20 & RSI14
-        if len(close) < 21:
-            return {"ok": True, "signal": "HOLD", "score": 0.0, "note": "Cần >= 21 ngày để tính MA20 & RSI"}
-
-        # Tính MA và RSI
-        ma5 = ma(close, 5).fillna(0.0)
-        ma20 = ma(close, 20).fillna(0.0)
-        rsi14 = rsi(close, 14).fillna(50.0)  # Nếu NaN, coi RSI = 50 trung lập
-
-        latest_ma5 = float(ma5.iloc[-1] or 0.0)
-        latest_ma20 = float(ma20.iloc[-1] or 0.0)
-        latest_rsi = float(rsi14.iloc[-1] or 50.0)
-
-        prev_ma5 = float(ma5.iloc[-2] or 0.0)
-        prev_ma20 = float(ma20.iloc[-2] or 0.0)
-
-        # Kiểm tra MA cross
-        if (prev_ma5 <= prev_ma20) and (latest_ma5 > latest_ma20):
-            ma_cross = "MA5_cross_up"
-        elif (prev_ma5 >= prev_ma20) and (latest_ma5 < latest_ma20):
-            ma_cross = "MA5_cross_down"
+        # --- quyết định tín hiệu ---
+        if combined_score >= 0.5:
+            overall = "STRONG_BUY"
+        elif combined_score >= 0.2:
+            overall = "BUY"
+        elif combined_score <= -0.5:
+            overall = "STRONG_SELL"
+        elif combined_score <= -0.2:
+            overall = "SELL"
         else:
-            ma_cross = "no_cross"
+            overall = "HOLD"
 
-        # Độ biến động
-        vol = float(close.pct_change().rolling(10).std().iloc[-1] or 0.0)
-
-        # Tính score
-        score = 0.0
-        score += 0.4 if latest_ma5 > latest_ma20 else -0.2
-        if latest_rsi < 30:
-            score += 0.3
-        elif latest_rsi > 70:
-            score -= 0.3
-        score -= min(0.2, vol * 2)
-
-        # Bảo vệ NaN
-        if np.isnan(score):
-            score = 0.0
-
-        # Giới hạn score
-        score = max(-1.0, min(1.0, score))
-
-        # Gán tín hiệu dựa trên score
-        if score > 0.35:
-            signal = "STRONG_BUY"
-        elif score > 0.05:
-            signal = "BUY"
-        elif score < -0.35:
-            signal = "STRONG_SELL"
-        elif score < -0.05:
-            signal = "SELL"
-        else:
-            signal = "HOLD"
-
-        return {
+        result = {
             "ok": True,
-            "rsi": round(latest_rsi, 2),
-            "ma5": round(latest_ma5, 4),
-            "ma20": round(latest_ma20, 4),
-            "ma_cross": ma_cross,
-            "volatility": round(vol, 6),
-            "score": round(score, 3),
-            "signal": signal,
-            "note": "Tính toán MA & RSI"
+            "overall_signal": overall,
+            "score": round(combined_score, 3),
+            "components": {
+                "advanced": adv,
+                "recommend": rec
+            }
         }
 
+        # 🔥 Quan trọng: Forward daily ra UI
+        if isinstance(adv.get("daily"), list):
+            result["daily"] = adv["daily"]
+
+        return result
+
     except Exception as e:
-        # Nếu có lỗi bất ngờ, vẫn trả HOLD và score = 0
-        return {"ok": True, "signal": "HOLD", "score": 0.0, "note": f"Lỗi khi tính: {str(e)}"}
+        return {"ok": False, "msg": str(e)}
 
-
-
-# -----------------------
-# Summary (Tổng hợp)
-# -----------------------
-def signal_summary(base_dir, file):
-    pred_path = get_predict_path(base_dir, file)
-
-    if not os.path.exists(pred_path):
-        return {"ok": False, "msg": "Chưa có file dự đoán"}
-
-    monthly, err_m = analyze_monthly(pred_path)
-    quarterly, err_q = analyze_quarterly(pred_path)
-
-    adv = signal_advanced(pred_path)
-    simp = signal_simple(pred_path, horizon=30)
-
-    if not adv.get("ok", True):
-        return {"ok": False, "msg": adv.get("msg", "Lỗi advanced")}
-
-    score = adv.get("score", 0.0)
-
-    # Thêm xu hướng tháng
-    try:
-        if monthly and len(monthly) >= 2:
-            last = float(monthly[-1]["Trung_bình"])
-            prev = float(monthly[-2]["Trung_bình"])
-            monthly_pct = (last - prev) / (prev + 1e-9)
-            score += max(-0.3, min(0.3, monthly_pct))
-    except:
-        pass
-
-    score = max(-1.0, min(1.0, score))
-
-    if score > 0.4:
-        overall = "STRONG_BUY"
-    elif score > 0.1:
-        overall = "BUY"
-    elif score < -0.4:
-        overall = "STRONG_SELL"
-    elif score < -0.1:
-        overall = "SELL"
-    else:
-        overall = "HOLD"
-
-    return {
-        "ok": True,
-        "overall_signal": overall,
-        "score": round(score, 3),
-        "advanced": adv,
-        "simple_30d": simp,
-        "monthly": monthly,
-        "quarterly": quarterly,
-        "note": "Kết hợp MA/RSI và xu hướng tháng"
-    }
