@@ -103,19 +103,21 @@ def train_lstm(file_path, progress_callback=None, epochs=80, batch_size=16, futu
 
     raw_df = pd.read_csv(file_path)
     raw_df.columns = [c.strip() for c in raw_df.columns]
-    if "Giá_đóng_cửa_thực_tế" not in raw_df.columns:
-    # File tương lai → chỉ đọc ngày + giá dự đoán
+
+    # CASE: file dự đoán tương lai (chỉ có 2 cột)
+    if len(raw_df.columns) == 2:
+        date_col = raw_df.columns[0]
+        price_col = raw_df.columns[1]
+
         df = raw_df.copy()
-        df["Giá_đóng_cửa_dự_đoán"] = df.iloc[:, 1].astype(float)
-        
-        future_path = file_path  # trả luôn file này
+        df["Giá_đóng_cửa_dự_đoán"] = df[price_col].astype(float)
+
+        future_path = file_path
         merged_data = {
-            "dates": df["Ngày"].tolist(),
-            "real": [None]*len(df),
+            "dates": df[date_col].tolist(),
+            "real": [None] * len(df),
             "pred": df["Giá_đóng_cửa_dự_đoán"].tolist()
         }
-        
-        # Không cần train, scale, MAE/RMSE
         return None, future_path, None, None, None, merged_data
     df = detect_and_fix_format(raw_df)
 
@@ -123,7 +125,7 @@ def train_lstm(file_path, progress_callback=None, epochs=80, batch_size=16, futu
     df = df[df["close"] > 0]
     if df.empty:
         raise ValueError("Không còn dữ liệu hợp lệ sau khi lọc NaN hoặc close <= 0")
-    df = df.sort_values("date")
+    df = df.sort_values("date") 
 
     df.set_index("date", inplace=True)
     df.index = pd.to_datetime(df.index)
